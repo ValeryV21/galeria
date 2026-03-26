@@ -288,10 +288,14 @@ def fetch_anime_by_id(mal_id: int):
         pass
     return None
 
-@st.cache_data(show_spinner=False)
 def search_jikan(query: str):
+    """No cache — always fetch fresh results from Jikan."""
     try:
-        r = requests.get(f"{JIKAN}/anime", params={"q": query, "limit": 12, "sfw": True}, timeout=10)
+        r = requests.get(
+            f"{JIKAN}/anime",
+            params={"q": query, "limit": 16, "order_by": "popularity"},
+            timeout=10
+        )
         if r.status_code == 200:
             return r.json().get("data", [])
     except Exception:
@@ -324,6 +328,10 @@ PRELOAD_IDS = [16498, 1535, 11061, 38000, 1, 20]
 if "collection" not in st.session_state:
     st.session_state.collection = []
     st.session_state.loaded = False
+if "search_results" not in st.session_state:
+    st.session_state.search_results = []
+if "last_query" not in st.session_state:
+    st.session_state.last_query = ""
 
 if not st.session_state.loaded:
     with st.spinner("🌸 Зарежда аниме..."):
@@ -410,43 +418,51 @@ with tab_search:
 
     s_col1, s_col2 = st.columns([4, 1])
     with s_col1:
-        query = st.text_input("Търси", placeholder="напр. Naruto, One Piece, Bleach...", label_visibility="collapsed")
+        query = st.text_input(
+            "Търси",
+            placeholder="напр. Naruto, One Piece, Dragon Ball, Bleach, Jujutsu Kaisen...",
+            label_visibility="collapsed",
+            value=st.session_state.last_query
+        )
     with s_col2:
         search_btn = st.button("🔍 Търси")
 
-    if search_btn and query:
-        with st.spinner("Търся..."):
-            results = search_jikan(query)
+    # Trigger search on button click OR Enter (query changed)
+    if search_btn and query.strip():
+        with st.spinner("🌸 Търся..."):
+            st.session_state.search_results = search_jikan(query.strip())
+            st.session_state.last_query = query.strip()
 
-        if not results:
-            st.warning("Няма резултати. Опитай друго търсене.")
-        else:
-            st.markdown(f"**{len(results)} резултата за** *{query}*")
-            st.markdown("<hr>", unsafe_allow_html=True)
+    results = st.session_state.search_results
 
-            res_cols = st.columns(4)
-            for i, anime in enumerate(results):
-                img   = get_img(anime)
-                score = get_score(anime) or "N/A"
-                desc  = get_desc(anime, 120)
-                in_col = any(a["mal_id"] == anime["mal_id"] for a in st.session_state.collection)
+    if results:
+        st.markdown(f"**{len(results)} резултата за** *{st.session_state.last_query}*")
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-                with res_cols[i % 4]:
-                    st.markdown(f"""
-                    <div class="search-card">
-                        <img src="{img}" alt="{anime['title']}">
-                        <div class="search-card-body">
-                            <div class="search-card-title">{anime['title']}</div>
-                            <div class="search-card-score">{score}</div>
-                            <div class="search-card-desc">{desc}</div>
-                        </div>
+        res_cols = st.columns(4)
+        for i, anime in enumerate(results):
+            img    = get_img(anime)
+            score  = get_score(anime) or "N/A"
+            desc   = get_desc(anime, 120)
+            in_col = any(a["mal_id"] == anime["mal_id"] for a in st.session_state.collection)
+
+            with res_cols[i % 4]:
+                st.markdown(f"""
+                <div class="search-card">
+                    <img src="{img}" alt="{anime['title']}">
+                    <div class="search-card-body">
+                        <div class="search-card-title">{anime['title']}</div>
+                        <div class="search-card-score">{score}</div>
+                        <div class="search-card-desc">{desc}</div>
                     </div>
-                    """, unsafe_allow_html=True)
+                </div>
+                """, unsafe_allow_html=True)
 
-                    if in_col:
-                        st.success("✓ В колекцията")
-                    else:
-                        if st.button(f"+ Добави", key=f"add_{anime['mal_id']}"):
-                            st.session_state.collection.insert(0, anime)
-                            st.success(f"🌸 {anime['title']} добавено!")
-                            st.rerun()
+                if in_col:
+                    st.success("✓ В колекцията")
+                else:
+                    if st.button("+ Добави", key=f"add_{anime['mal_id']}"):
+                        st.session_state.collection.insert(0, anime)
+                        st.rerun()
+    elif st.session_state.last_query:
+        st.warning("Няма резултати. Опитай друго търсене.")
